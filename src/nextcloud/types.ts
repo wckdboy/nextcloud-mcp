@@ -1,3 +1,5 @@
+import type { Readable, Writable } from "node:stream";
+
 export interface FileInfo {
   path: string;
   name: string;
@@ -20,6 +22,20 @@ export interface WriteOptions {
   contentType: string;
   overwrite: boolean;
   parents: boolean;
+}
+
+/** Local file opened only after size, path, and overwrite checks succeed. */
+export interface StreamingUpload {
+  byteLength: number;
+  open(): Readable;
+}
+
+/** Inline bytes for write_file, or a host file stream for upload_file. */
+export type WriteBody = Uint8Array | StreamingUpload;
+
+export interface DownloadedFile {
+  contentType: string | null;
+  byteLength: number;
 }
 
 export interface ShareLinkRequest {
@@ -49,7 +65,9 @@ export interface NextcloudFiles {
   listDirectory(path: string): Promise<FileInfo[]>;
   stat(path: string): Promise<FileInfo>;
   readFile(path: string, maxBytes: number): Promise<FileBody>;
-  writeFile(path: string, body: Uint8Array, options: WriteOptions): Promise<void>;
+  /** Stream a WebDAV GET to a host writable. Refuses bodies over maxBytes instead of truncating. */
+  downloadFile(path: string, maxBytes: number, destination: Writable): Promise<DownloadedFile>;
+  writeFile(path: string, body: WriteBody, options: WriteOptions): Promise<void>;
   mkdir(path: string, parents: boolean): Promise<void>;
   move(from: string, to: string, overwrite: boolean): Promise<void>;
   delete(path: string): Promise<void>;

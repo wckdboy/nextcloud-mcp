@@ -1,7 +1,7 @@
 {
   "name": "nextcloud-mcp",
   "displayName": "Nextcloud",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Nextcloud files over WebDAV and public share links over OCS. Uses an app token (Settings → Security → Devices & sessions), not the account password.",
   "author": {
     "name": "wckdboy"

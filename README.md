@@ -1,6 +1,6 @@
 # nextcloud-mcp
 
-MCP server for one Nextcloud account. Agents list, read, write, create, move, and delete files over WebDAV, create public share links over the OCS Share API, and search file names with WebDAV SEARCH. Credentials stay in environment variables. This repository does not ship secrets.
+MCP server for one Nextcloud account. Agents list, read, write, upload, download, create, move, and delete files over WebDAV, create public share links over the OCS Share API, and search file names with WebDAV SEARCH. File bytes travel over WebDAV. Large files already on the MCP host use `upload_file` and `download_file` with an absolute `localPath` instead of base64 in the tool call. Credentials stay in environment variables. This repository does not ship secrets.
 
 Nextcloud auth is HTTP Basic with the user id and an **app password** (an app token). The server does not use browser login, session cookies, or Login Flow v2/OAuth.
 
@@ -8,7 +8,7 @@ Nextcloud auth is HTTP Basic with the user id and an **app password** (an app to
 
 | Work | Protocol | Endpoint |
 | --- | --- | --- |
-| List, stat, read, write, mkdir, move, delete | WebDAV | `/remote.php/dav/files/<username>/…` |
+| List, stat, read, write, upload, download, mkdir, move, delete | WebDAV | `/remote.php/dav/files/<username>/…` |
 | Filename search | WebDAV `SEARCH` | `/remote.php/dav/` |
 | Public share link | OCS Share API | `/ocs/v2.php/apps/files_sharing/api/v1/shares` |
 
@@ -25,7 +25,9 @@ The server speaks [stdio](https://modelcontextprotocol.io) for Cursor and Grok B
 | `list_directory` | Immediate children of a folder. Not recursive. |
 | `stat` | Metadata for one file or folder (file info). |
 | `read_file` | UTF-8 text, or base64 when you ask. Refuses binary text and files over the read limit. |
-| `write_file` | Upload a file. Refuses to replace an existing file unless `overwrite` is true. |
+| `download_file` | WebDAV GET into an absolute `localPath` on the MCP host. Does not return bytes. Ceiling is `NEXTCLOUD_MAX_WRITE_BYTES`. Oversized files are refused, not truncated. |
+| `write_file` | Small inline upload (UTF-8 or base64). Refuses to replace an existing file unless `overwrite` is true. For a large or binary file on the host, prefer `upload_file` with `localPath`. |
+| `upload_file` | Read an absolute `localPath` on the MCP host and WebDAV PUT it. No inline content and no base64. Size is checked with `stat` against `NEXTCLOUD_MAX_WRITE_BYTES` before upload. |
 | `mkdir` | Create a folder. `parents: true` creates missing ancestors. |
 | `move` | Move or rename. `overwrite` defaults to false. |
 | `delete` | Delete one path. Requires `confirm: true`. A folder also requires `recursive: true`. |
@@ -36,7 +38,9 @@ Paths are relative to the signed-in user's files. `""` and `"/"` are the files r
 
 `delete` never removes the files root. There is no multi-path delete and no account wipe. Nextcloud's own `DELETE` on a folder removes that folder's contents, so a folder delete stays gated behind `recursive: true`.
 
-`write_file` and `mkdir` accept `parents: true` to create missing parent folders. They do not delete anything to do it.
+`write_file`, `upload_file`, and `mkdir` accept `parents: true` to create missing parent folders. They do not delete anything to do it.
+
+`localPath` is on the computer running this MCP process (the Cursor host, or the Grok Bot computer, for stdio). It is not a Nextcloud path. `upload_file` and `download_file` refuse a relative path, any `..` segment, and a path Node cannot resolve. `download_file` also refuses a symlink at the destination file and leaves no partial file behind when the download is refused. A remote HTTP deployment reads and writes files on that server, not on a different laptop.
 
 ## Grok Bot / Cursor plugin
 
@@ -57,7 +61,8 @@ The plugin stores only `${NEXTCLOUD_URL}`, `${NEXTCLOUD_USERNAME}`, and `${NEXTC
 Tools, once those variables are set:
 
 - `list_directory` and `stat` to inspect a folder or one path
-- `read_file` and `write_file` for file contents
+- `read_file` and `write_file` for small inline file contents
+- `upload_file` and `download_file` when the bytes are already on the MCP host (`localPath`)
 - `mkdir` and `move` to create folders and rename or move
 - `delete` with `confirm: true` (and `recursive: true` for a folder)
 - `search` for a filename substring
@@ -118,8 +123,8 @@ Optional:
 
 | Name | Default | Purpose |
 | --- | --- | --- |
-| `NEXTCLOUD_MAX_READ_BYTES` | `1048576` | Read ceiling. Hard max `8388608` (8 MiB). Oversized files are refused, not truncated. |
-| `NEXTCLOUD_MAX_WRITE_BYTES` | `10485760` | Upload ceiling. Hard max `33554432` (32 MiB). |
+| `NEXTCLOUD_MAX_READ_BYTES` | `1048576` | Inline `read_file` ceiling. Hard max `8388608` (8 MiB). Oversized files are refused, not truncated. |
+| `NEXTCLOUD_MAX_WRITE_BYTES` | `10485760` | Upload ceiling for `write_file` and `upload_file`, and the download-to-disk ceiling for `download_file`. Hard max `33554432` (32 MiB). Oversized transfers are refused, not truncated. |
 | `NEXTCLOUD_TIMEOUT_MS` | `30000` | Per-request timeout. |
 | `MCP_HTTP_HOST` | `127.0.0.1` | Bind address for `--http`. |
 | `MCP_HTTP_PORT` | `8787` | Bind port for `--http`. |

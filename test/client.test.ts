@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { Readable, Writable } from "node:stream";
 import { describe, it } from "node:test";
 import { createNextcloudClient } from "../src/nextcloud/client.js";
-import { NextcloudError, PathError, UserInputError } from "../src/errors.js";
+import { FileTooLargeError, NextcloudError, PathError, UserInputError } from "../src/errors.js";
 import { recordedFetch, testConfig } from "./helpers.js";
 
 const LISTING = `<?xml version="1.0"?>
@@ -94,6 +95,8 @@ describe("Nextcloud client", () => {
     assert.equal(calls[1]?.method, "PUT");
     assert.equal(calls[1]?.body, "hello");
     assert.equal(calls[1]?.headers.get("content-type"), "text/plain; charset=utf-8");
+    assert.equal(calls[1]?.headers.get("content-length"), "5");
+    assert.equal(calls[1]?.duplex, null);
   });
 
   it("refuses to overwrite an existing file unless asked", async () => {
@@ -237,6 +240,122 @@ describe("Nextcloud client", () => {
     );
   });
 
+  it("puts a readable stream without opening it before the size check", async () => {
+    const { fetchImpl, calls } = recordedFetch((call) => {
+      if (call.method === "PROPFIND") {
+        return xmlResponse(404, "");
+      }
+      return xmlResponse(201, "");
+    });
+    const client = createNextcloudClient(testConfig, { fetchImpl });
+    let opened = false;
+    await client.writeFile(
+      "notes.txt",
+      {
+        byteLength: 5,
+        open: () => {
+          opened = true;
+          return Readable.from([Buffer.from("hello")]);
+        },
+      },
+      { contentType: "application/octet-stream", overwrite: false, parents: false },
+    );
+    assert.equal(opened, true);
+    assert.equal(calls[1]?.method, "PUT");
+    assert.equal(calls[1]?.body, "hello");
+    assert.equal(calls[1]?.duplex, "half");
+    assert.equal(calls[1]?.headers.get("content-length"), "5");
+
+    const blocked = recordedFetch(() => xmlResponse(500, ""));
+    const blockedClient = createNextcloudClient(testConfig, { fetchImpl: blocked.fetchImpl });
+    let blockedOpen = false;
+    await assert.rejects(
+      () =>
+        blockedClient.writeFile(
+          "big.bin",
+          {
+            byteLength: testConfig.limits.maxWriteBytes + 1,
+            open: () => {
+              blockedOpen = true;
+              return Readable.from([Buffer.from("nope")]);
+            },
+          },
+          { contentType: "application/octet-stream", overwrite: false, parents: false },
+        ),
+      /NEXTCLOUD_MAX_WRITE_BYTES/,
+    );
+    assert.equal(blockedOpen, false);
+    assert.equal(blocked.calls.length, 0);
+  });
+
+  it("does not open an upload stream when overwrite is refused", async () => {
+    const { fetchImpl, calls } = recordedFetch(() => xmlResponse(207, FILE_STAT));
+    const client = createNextcloudClient(testConfig, { fetchImpl });
+    let opened = false;
+    await assert.rejects(
+      () =>
+        client.writeFile(
+          "notes.txt",
+          {
+            byteLength: 5,
+            open: () => {
+              opened = true;
+              return Readable.from([Buffer.from("hello")]);
+            },
+          },
+          { contentType: "text/plain", overwrite: false, parents: false },
+        ),
+      /overwrite: true/,
+    );
+    assert.equal(opened, false);
+    assert.equal(calls.some((call) => call.method === "PUT"), false);
+  });
+
+  it("streams a download to a writable and refuses an oversized body", async () => {
+    const { fetchImpl, calls } = recordedFetch(
+      () =>
+        new Response(Buffer.from("pdf-bytes"), {
+          status: 200,
+          headers: { "content-type": "application/pdf", "content-length": "9" },
+        }),
+    );
+    const client = createNextcloudClient(testConfig, { fetchImpl });
+    const collected = collectWritable();
+    const downloaded = await client.downloadFile("a.pdf", 100, collected.writable);
+    assert.equal(downloaded.byteLength, 9);
+    assert.equal(downloaded.contentType, "application/pdf");
+    assert.equal(collected.bytes().toString("utf8"), "pdf-bytes");
+    assert.equal(calls[0]?.method, "GET");
+
+    const oversized = recordedFetch(
+      () =>
+        new Response(Buffer.from("abcdef"), {
+          status: 200,
+          headers: { "content-type": "application/pdf", "content-length": "6" },
+        }),
+    );
+    const oversizedClient = createNextcloudClient(testConfig, { fetchImpl: oversized.fetchImpl });
+    const sink = collectWritable();
+    await assert.rejects(
+      () => oversizedClient.downloadFile("a.pdf", 4, sink.writable),
+      (error: unknown) => {
+        assert.ok(error instanceof FileTooLargeError);
+        assert.match(error.message, /download limit of 4 bytes/);
+        assert.match(error.message, /NEXTCLOUD_MAX_WRITE_BYTES/);
+        return true;
+      },
+    );
+    assert.equal(sink.bytes().byteLength, 0);
+
+    const unbounded = recordedFetch(
+      () => new Response(Buffer.from("abcdef"), { status: 200, headers: { "content-type": "application/pdf" } }),
+    );
+    const unboundedClient = createNextcloudClient(testConfig, { fetchImpl: unbounded.fetchImpl });
+    const partial = collectWritable();
+    await assert.rejects(() => unboundedClient.downloadFile("a.pdf", 4, partial.writable), FileTooLargeError);
+    assert.ok(partial.bytes().byteLength <= 4);
+  });
+
   it("refuses a read larger than the limit without returning a partial body", async () => {
     const { fetchImpl } = recordedFetch(
       () => xmlResponse(200, "abcdef", { "content-type": "text/plain", "content-length": "6" }),
@@ -245,3 +364,14 @@ describe("Nextcloud client", () => {
     await assert.rejects(() => client.readFile("notes.txt", 4), /read limit of 4 bytes/);
   });
 });
+
+function collectWritable(): { writable: Writable; bytes: () => Buffer } {
+  const chunks: Buffer[] = [];
+  const writable = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      chunks.push(Buffer.from(chunk));
+      callback();
+    },
+  });
+  return { writable, bytes: () => Buffer.concat(chunks) };
+}

@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import type { NextcloudConfig } from "../src/config.js";
 import type { FileInfo, NextcloudFiles } from "../src/nextcloud/types.js";
 import type { ToolContext } from "../src/capabilities/types.js";
@@ -38,6 +39,7 @@ export function mockFiles(overrides: Partial<NextcloudFiles> = {}): NextcloudFil
     listDirectory: unexpected,
     stat: unexpected,
     readFile: unexpected,
+    downloadFile: unexpected,
     writeFile: unexpected,
     mkdir: unexpected,
     move: unexpected,
@@ -65,6 +67,8 @@ export interface RecordedCall {
   method: string;
   headers: Headers;
   body: string | null;
+  rawBody: Buffer | null;
+  duplex: string | null;
 }
 
 export function recordedFetch(handler: (call: RecordedCall) => Response): {
@@ -75,23 +79,40 @@ export function recordedFetch(handler: (call: RecordedCall) => Response): {
   const fetchImpl: typeof fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const headers = new Headers(init?.headers);
-    const body = bodyText(init?.body);
-    const call: RecordedCall = { url, method: init?.method ?? "GET", headers, body };
+    const rawBody = await readRawBody(init?.body);
+    const body = rawBody === null ? null : rawBody.toString("utf8");
+    const duplex = duplexOf(init);
+    const call: RecordedCall = { url, method: init?.method ?? "GET", headers, body, rawBody, duplex };
     calls.push(call);
     return handler(call);
   };
   return { fetchImpl, calls };
 }
 
-function bodyText(body: BodyInit | null | undefined): string | null {
+function duplexOf(init: RequestInit | undefined): string | null {
+  if (init === undefined) {
+    return null;
+  }
+  const record = init as RequestInit & { duplex?: unknown };
+  return typeof record.duplex === "string" ? record.duplex : null;
+}
+
+async function readRawBody(body: BodyInit | Readable | null | undefined): Promise<Buffer | null> {
   if (body === undefined || body === null) {
     return null;
   }
   if (typeof body === "string") {
-    return body;
+    return Buffer.from(body);
   }
   if (body instanceof Uint8Array) {
-    return Buffer.from(body).toString("utf8");
+    return Buffer.from(body);
+  }
+  if (body instanceof Readable) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of body) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+    }
+    return Buffer.concat(chunks);
   }
   return null;
 }
