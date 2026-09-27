@@ -40,6 +40,10 @@ Paths are relative to the signed-in user's files. `""` and `"/"` are the files r
 
 ## Grok Bot / Cursor plugin
 
+<img src="assets/logo.png" alt="Community plugin icon" width="96" />
+
+This is a community MCP for Nextcloud files. It is not a first-party Nextcloud or Cursor product.
+
 Install **Nextcloud** from the marketplace once this repository is listed. In Cursor that is Customize. In Grok Bot that is SearchPlugins. The plugin starts the same stdio server as the `nextcloud-mcp` npm bin (`npx` runs `github:wckdboy/nextcloud-mcp`). Fill the three setup variables in the plugin configuration. Do not add a second custom MCP server for the same account.
 
 | Variable | What to enter |

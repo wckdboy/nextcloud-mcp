@@ -6,6 +6,7 @@ import { VERSION } from "../src/version.js";
 interface PluginManifest {
   name: string;
   version: string;
+  logo: string;
   mcpServers: string;
   variables: {
     required: string[];
@@ -33,6 +34,12 @@ describe("cursor plugin manifest", () => {
     assert.equal(plugin.mcpServers, "./mcp.json");
     assert.equal(plugin.version, pkg.version);
     assert.equal(plugin.version, VERSION);
+  });
+
+  it("points the plugin logo at the committed PNG", () => {
+    assert.equal(plugin.logo, "assets/logo.png");
+    const logo = readFileSync(new URL("../assets/logo.png", import.meta.url));
+    assert.equal(logo.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   });
 
   it("declares only ${VAR} placeholders for the three setup variables", () => {
