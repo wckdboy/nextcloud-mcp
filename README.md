@@ -38,6 +38,43 @@ Paths are relative to the signed-in user's files. `""` and `"/"` are the files r
 
 `write_file` and `mkdir` accept `parents: true` to create missing parent folders. They do not delete anything to do it.
 
+## Grok Bot / Cursor plugin
+
+<img src="assets/logo.png" alt="Community plugin icon" width="96" />
+
+This is a community MCP for Nextcloud files. It is not a first-party Nextcloud or Cursor product.
+
+Install **Nextcloud** from the marketplace once this repository is listed. In Cursor that is Customize. In Grok Bot that is SearchPlugins. The plugin starts the same stdio server as the `nextcloud-mcp` npm bin (`npx` runs `github:wckdboy/nextcloud-mcp`). Fill the three setup variables in the plugin configuration. Do not add a second custom MCP server for the same account.
+
+| Variable | What to enter |
+| --- | --- |
+| `NEXTCLOUD_URL` | Instance base URL, no trailing slash. Example: `https://cloud.example.com`. |
+| `NEXTCLOUD_USERNAME` | Nextcloud user id. |
+| `NEXTCLOUD_APP_PASSWORD` | App token from Settings → Security → Devices & sessions. Not the account password. |
+
+The plugin stores only `${NEXTCLOUD_URL}`, `${NEXTCLOUD_USERNAME}`, and `${NEXTCLOUD_APP_PASSWORD}` placeholders. Values stay in the host configuration.
+
+Tools, once those variables are set:
+
+- `list_directory` and `stat` to inspect a folder or one path
+- `read_file` and `write_file` for file contents
+- `mkdir` and `move` to create folders and rename or move
+- `delete` with `confirm: true` (and `recursive: true` for a folder)
+- `search` for a filename substring
+- `create_share_link` for a public OCS link
+
+Details are in [Tools](#tools). `skills/nextcloud-files/SKILL.md` is the same guidance for the agent. Auth is the app token already configured on the server. The server does not start Login Flow v2.
+
+Before the listing is public, test the plugin from a clone:
+
+```bash
+git clone https://github.com/wckdboy/nextcloud-mcp.git ~/.cursor/plugins/local/nextcloud-mcp
+```
+
+Reload the window, then install **Nextcloud** from Customize. A symlink in `~/.cursor/plugins/local` that points outside that folder is ignored, so clone or copy the repo into that directory.
+
+After this change is on `main`, submit the repository at [cursor.com/marketplace/publish](https://cursor.com/marketplace/publish). Cursor reviews the listing before it appears in Customize and SearchPlugins. Pinning the repo in the Grok Build catalog is a separate step.
+
 ## Requirements
 
 - Node.js 20 or newer
@@ -121,6 +158,8 @@ WebDAV is then `NEXTCLOUD_URL/remote.php/dav/files/NEXTCLOUD_USERNAME/`. Share l
 
 ## Cursor
 
+The [plugin install](#grok-bot--cursor-plugin) is the path for Customize. The block below is a manual stdio server when you are not using the plugin.
+
 Put this in the user file `~/.cursor/mcp.json`, or in the project file `.cursor/mcp.json` if that file is gitignored. Use an absolute path. Keep the password out of the repository.
 
 ```json
@@ -165,7 +204,7 @@ From a machine that can `npm install` this public repo, the same server can be s
 
 ## Grok Bot
 
-Grok Bot runs the MCP process on its cloud computer. It cannot reach `localhost` on your laptop. Add a **custom** stdio server and store the three secrets on that server entry.
+SearchPlugins installs the [Nextcloud plugin](#grok-bot--cursor-plugin) after it is listed. Until then, add a custom stdio server. Grok Bot runs that process on its cloud computer and cannot reach `localhost` on your laptop. Store the three secrets on that server entry.
 
 In the bot chat:
 
