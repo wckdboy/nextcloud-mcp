@@ -11,6 +11,7 @@ const INSTRUCTIONS = [
   "delete requires confirm true, and folder delete also requires recursive true, because Nextcloud folder DELETE removes everything inside that one folder.",
   "The files root cannot be deleted. There is no multi-path or account wipe.",
   "search matches file names only, not file contents.",
+  "Authentication is already configured with an app password. Do not ask for the Nextcloud account password or the app password.",
   "Do not put passwords or tokens into tool arguments except the optional share-link password.",
 ].join(" ");
 

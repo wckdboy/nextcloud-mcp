@@ -66,6 +66,8 @@ describe("Nextcloud client", () => {
       `Basic ${Buffer.from("alice:app-secret").toString("base64")}`,
     );
     assert.equal(calls[0]?.url.includes("app-secret"), false);
+    assert.equal(calls[0]?.headers.get("cookie"), null);
+    assert.equal(calls[0]?.headers.get("authorization")?.startsWith("Basic "), true);
   });
 
   it("does not call the network for a traversing path or a root delete", async () => {

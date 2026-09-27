@@ -12,7 +12,7 @@ const HELP = `nextcloud-mcp
 Environment:
   NEXTCLOUD_URL            Base URL, no trailing slash required
   NEXTCLOUD_USERNAME       Nextcloud user id
-  NEXTCLOUD_APP_PASSWORD   App password (Settings → Security)
+  NEXTCLOUD_APP_PASSWORD   App token (Settings → Security → Devices & sessions)
 
 Commands:
   nextcloud-mcp            stdio MCP (default)

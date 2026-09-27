@@ -11,6 +11,7 @@ import type {
   ShareLinkRequest,
   WriteOptions,
 } from "./types.js";
+import { appPasswordAuthorization, withAppPasswordAuth } from "./auth.js";
 import { buildSearchXml, filenameLikeLiteral, parseMultiStatus, propfindBody } from "./xml.js";
 
 const XML_BODY_LIMIT = 8 * 1024 * 1024;
@@ -24,7 +25,7 @@ export function createNextcloudClient(
   options: NextcloudClientOptions = {},
 ): NextcloudFiles {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const authorization = `Basic ${Buffer.from(`${config.username}:${config.appPassword}`, "utf8").toString("base64")}`;
+  const authorization = appPasswordAuthorization(config.username, config.appPassword);
 
   function filesRoot(): string {
     return `${config.baseUrl}/remote.php/dav/files/${encodeURIComponent(config.username)}`;
@@ -50,11 +51,10 @@ export function createNextcloudClient(
         method,
         redirect: "manual",
         signal: AbortSignal.timeout(config.timeoutMs),
-        headers: {
-          Authorization: authorization,
+        headers: withAppPasswordAuth(authorization, {
           "User-Agent": `nextcloud-mcp/${VERSION}`,
           ...init.headers,
-        },
+        }),
         body: init.body,
       });
     } catch (cause) {
@@ -388,7 +388,7 @@ function explainStatus(status: number, method: string, path: string, detail: str
   const where = displayPath(path);
   let summary: string;
   if (status === 401) {
-    summary = "Nextcloud rejected the app password (HTTP 401). Check NEXTCLOUD_USERNAME and NEXTCLOUD_APP_PASSWORD.";
+    summary = "Nextcloud rejected the app password (HTTP 401). Check NEXTCLOUD_USERNAME and NEXTCLOUD_APP_PASSWORD. Use an app token from Settings → Security → Devices & sessions, not the account password, a session cookie, or OAuth.";
   } else if (status === 403) {
     summary = `Nextcloud refused ${method} (HTTP 403) for ${where}.`;
   } else if (status === 404) {

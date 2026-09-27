@@ -32,7 +32,14 @@ export function loadConfig(env: NodeJS.ProcessEnv): NextcloudConfig {
   const missing = REQUIRED_ENV.filter((key) => !env[key]?.trim());
   if (missing.length > 0) {
     throw new ConfigError(
-      `Missing required environment variables: ${missing.join(", ")}. Set NEXTCLOUD_URL, NEXTCLOUD_USERNAME, and NEXTCLOUD_APP_PASSWORD.`,
+      [
+        "Refusing to start.",
+        "Nextcloud auth is HTTP Basic with an app password (app token), not a session cookie and not Login Flow v2/OAuth.",
+        `Missing environment variables: ${missing.join(", ")}.`,
+        "Set NEXTCLOUD_URL, NEXTCLOUD_USERNAME, and NEXTCLOUD_APP_PASSWORD.",
+        "Create the app password in Nextcloud: Settings → Security → Devices & sessions → Create new app password.",
+        "Do not paste the account password or the app password into chat.",
+      ].join(" "),
       missing,
     );
   }

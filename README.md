@@ -2,6 +2,8 @@
 
 MCP server for one Nextcloud account. Agents list, read, write, create, move, and delete files over WebDAV, create public share links over the OCS Share API, and search file names with WebDAV SEARCH. Credentials stay in environment variables. This repository does not ship secrets.
 
+Nextcloud auth is HTTP Basic with the user id and an **app password** (an app token). The server does not use session cookies, and it does not use Login Flow v2 or OAuth.
+
 The server speaks [stdio](https://modelcontextprotocol.io) for Cursor and Grok Bot, and optional Streamable HTTP (JSON, with SSE when a response streams) for a remote client.
 
 ## Tools
@@ -61,7 +63,7 @@ Required:
 | --- | --- | --- |
 | `NEXTCLOUD_URL` | `https://cloud.example.com` | Base URL. A trailing slash is removed. No user, password, query, or fragment. |
 | `NEXTCLOUD_USERNAME` | `ada` | Nextcloud user id. |
-| `NEXTCLOUD_APP_PASSWORD` | *(app password)* | App password from Settings → Security. A regular account password works only if the server allows it; an app password is the right credential. |
+| `NEXTCLOUD_APP_PASSWORD` | *(app token)* | App password from Settings → Security → Devices & sessions. Not the account password. |
 
 Optional:
 
@@ -77,18 +79,33 @@ Optional:
 
 Copy [`.env.example`](.env.example). Do not commit `.env`.
 
+If any of the three required variables is missing, the process exits before it listens. The error names the missing variables and does not ask for a password.
+
+## Authentication
+
+Every WebDAV call (`/remote.php/dav/files/<user>/…`) and every OCS call sends:
+
+```http
+Authorization: Basic base64(NEXTCLOUD_USERNAME:NEXTCLOUD_APP_PASSWORD)
+```
+
+`NEXTCLOUD_APP_PASSWORD` is the app token Nextcloud shows once when you create an app password. The server never reads a session cookie, never starts Login Flow v2, and never performs an OAuth login. Redirects are not followed, so a login page cannot become a session.
+
+Do not paste the Nextcloud account password or the app token into chat. Put the app token in the MCP server environment as `NEXTCLOUD_APP_PASSWORD`. Agents should ask only for that secret name if it is unset.
+
 ## Create a Nextcloud app password
 
-1. Sign in to Nextcloud.
-2. Open the avatar menu and choose **Personal settings**.
+1. Sign in to Nextcloud in a browser.
+2. Open the avatar menu and choose **Personal settings** (or **Settings**).
 3. Open **Security**.
-4. Under **Devices & sessions**, type an app name such as `MCP`.
-5. Choose **Create new app password**.
-6. Copy the password into `NEXTCLOUD_APP_PASSWORD`. Nextcloud shows it once.
-7. Set `NEXTCLOUD_USERNAME` to the account user id (the id used to sign in, not necessarily the display name).
-8. Set `NEXTCLOUD_URL` to the site origin, for example `https://cloud.example.com`. If Nextcloud lives in a subdirectory, include it: `https://cloud.example.com/nextcloud`.
+4. Find **Devices & sessions** (also labeled **App passwords** on some versions).
+5. Type an app name such as `MCP`.
+6. Choose **Create new app password**.
+7. Copy that app token into `NEXTCLOUD_APP_PASSWORD`. Nextcloud shows it once. This is not your account password.
+8. Set `NEXTCLOUD_USERNAME` to the account user id (the id used to sign in, not necessarily the display name).
+9. Set `NEXTCLOUD_URL` to the site origin, for example `https://cloud.example.com`. If Nextcloud lives in a subdirectory, include it: `https://cloud.example.com/nextcloud`.
 
-WebDAV is then `NEXTCLOUD_URL/remote.php/dav/files/NEXTCLOUD_USERNAME/`. Share links use `NEXTCLOUD_URL/ocs/v2.php/apps/files_sharing/api/v1/shares`.
+WebDAV is then `NEXTCLOUD_URL/remote.php/dav/files/NEXTCLOUD_USERNAME/`. Share links use `NEXTCLOUD_URL/ocs/v2.php/apps/files_sharing/api/v1/shares`. Both use the same Basic header.
 
 ## Cursor
 
@@ -154,7 +171,7 @@ Command: `npx`
 Args: `-y`, `--package`, `github:wckdboy/nextcloud-mcp`, `nextcloud-mcp`  
 Secret names: `NEXTCLOUD_URL`, `NEXTCLOUD_USERNAME`, `NEXTCLOUD_APP_PASSWORD`
 
-Confirm when the bot repeats the command and the variable names. After it is stored, do not paste the app password into the chat again. Attach the server with `@` if the bot does not pick it up on its own. A server saved only in Cursor's `mcp.json` is not automatically available in Grok Bot; add it there with the message above.
+Confirm when the bot repeats the command and the variable names. Store the app token as `NEXTCLOUD_APP_PASSWORD` on that server entry. Do not paste the Nextcloud account password or the app token into the chat. Attach the server with `@` if the bot does not pick it up on its own. A server saved only in Cursor's `mcp.json` is not automatically available in Grok Bot; add it there with the message above.
 
 If the bot's computer already has a built checkout, use command `node` and args `/ABSOLUTE/PATH/nextcloud-mcp/dist/index.js` with the same three variables.
 

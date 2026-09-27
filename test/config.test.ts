@@ -22,6 +22,11 @@ describe("config", () => {
       (error: unknown) => {
         assert.ok(error instanceof ConfigError);
         assert.deepEqual(error.missing, ["NEXTCLOUD_USERNAME", "NEXTCLOUD_APP_PASSWORD"]);
+        assert.match(error.message, /Refusing to start/);
+        assert.match(error.message, /app password/);
+        assert.match(error.message, /Login Flow v2\/OAuth/);
+        assert.match(error.message, /NEXTCLOUD_URL, NEXTCLOUD_USERNAME, and NEXTCLOUD_APP_PASSWORD/);
+        assert.match(error.message, /Do not paste/);
         return true;
       },
     );
