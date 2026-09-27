@@ -18,7 +18,7 @@ export const writeFile = defineCapability({
   name: "write_file",
   title: "Write file",
   description:
-    "Create or upload a file over WebDAV PUT. Refuses to overwrite an existing file unless overwrite is true. Set parents true to create missing parent folders. Does not delete anything else.",
+    "Create or upload a small inline file over WebDAV PUT. content is UTF-8 text, or base64 when encoding is base64. For large or binary files already on the MCP host, prefer upload_file with localPath so the bytes are not inlined. Refuses to overwrite an existing file unless overwrite is true. Set parents true to create missing parent folders. Does not delete anything else.",
   inputSchema,
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
   async handle(input, ctx) {

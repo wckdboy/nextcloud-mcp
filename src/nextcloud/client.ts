@@ -1,14 +1,17 @@
+import { Readable, type Writable } from "node:stream";
 import { VERSION } from "../version.js";
 import type { NextcloudConfig } from "../config.js";
-import { FileTooLargeError, NextcloudError, UserInputError } from "../errors.js";
+import { FileTooLargeError, type FileSizeLimit, NextcloudError, UserInputError } from "../errors.js";
 import { encodeRelativePath, isFilesRoot, normalizeNextcloudPath, parentPath } from "../paths.js";
 import type {
+  DownloadedFile,
   FileBody,
   FileInfo,
   NextcloudFiles,
   SearchRequest,
   ShareLink,
   ShareLinkRequest,
+  WriteBody,
   WriteOptions,
 } from "./types.js";
 import { appPasswordAuthorization, withAppPasswordAuth } from "./auth.js";
@@ -44,7 +47,12 @@ export function createNextcloudClient(
     method: string,
     url: string,
     path: string,
-    init: { headers?: Record<string, string>; body?: BodyInit; accept: (status: number) => boolean },
+    init: {
+      headers?: Record<string, string>;
+      body?: BodyInit | Readable | Uint8Array;
+      duplex?: "half";
+      accept: (status: number) => boolean;
+    },
   ): Promise<Response> {
     let response: Response;
     try {
@@ -57,7 +65,8 @@ export function createNextcloudClient(
           ...init.headers,
         }),
         body: init.body,
-      });
+        duplex: init.duplex,
+      } as RequestInit);
     } catch (cause) {
       const timedOut = cause instanceof Error && (cause.name === "TimeoutError" || cause.name === "AbortError");
       throw new NextcloudError(
@@ -140,6 +149,27 @@ export function createNextcloudClient(
     return "created";
   }
 
+  async function fetchFile(
+    path: string,
+    maxBytes: number,
+    limit: FileSizeLimit,
+  ): Promise<{ response: Response; contentType: string | null; advertised: number | null }> {
+    const normalized = normalizeNextcloudPath(path);
+    if (normalized === "") {
+      throw new UserInputError(rootFileMessage(limit));
+    }
+    const response = await request("GET", fileUrl(normalized), normalized, {
+      accept: (status) => status === 200,
+    });
+    const contentType = response.headers.get("content-type");
+    const advertised = contentLength(response);
+    if (advertised !== null && advertised > maxBytes) {
+      await response.body?.cancel();
+      throw new FileTooLargeError(advertised, maxBytes, limit);
+    }
+    return { response, contentType, advertised };
+  }
+
   async function ensureCollection(path: string): Promise<void> {
     const normalized = normalizeNextcloudPath(path);
     if (normalized === "") {
@@ -176,35 +206,30 @@ export function createNextcloudClient(
     stat,
 
     async readFile(path: string, maxBytes: number): Promise<FileBody> {
-      const normalized = normalizeNextcloudPath(path);
-      if (normalized === "") {
-        throw new UserInputError("Refusing to read the files root. Pass a file path.");
-      }
-      const response = await request("GET", fileUrl(normalized), normalized, {
-        accept: (status) => status === 200,
-      });
-      const contentType = response.headers.get("content-type");
-      const advertised = contentLength(response);
-      if (advertised !== null && advertised > maxBytes) {
-        await response.body?.cancel();
-        throw new FileTooLargeError(advertised, maxBytes);
-      }
+      const { response, contentType, advertised } = await fetchFile(path, maxBytes, "read");
       const downloaded = await readCapped(response, maxBytes);
       if (downloaded.truncated) {
-        throw new FileTooLargeError(advertised, maxBytes);
+        throw new FileTooLargeError(advertised, maxBytes, "read");
       }
       const bytes = downloaded.bytes;
       return { bytes, contentType, byteLength: bytes.byteLength };
     },
 
-    async writeFile(path: string, body: Uint8Array, options: WriteOptions): Promise<void> {
+    async downloadFile(path: string, maxBytes: number, destination: Writable): Promise<DownloadedFile> {
+      const { response, contentType, advertised } = await fetchFile(path, maxBytes, "download");
+      const byteLength = await writeCapped(response, destination, maxBytes, advertised);
+      return { contentType, byteLength };
+    },
+
+    async writeFile(path: string, body: WriteBody, options: WriteOptions): Promise<void> {
       const normalized = normalizeNextcloudPath(path);
       if (normalized === "") {
         throw new UserInputError("Refusing to write the files root. Pass a file path.");
       }
-      if (body.byteLength > config.limits.maxWriteBytes) {
+      const byteLength = uploadByteLength(body);
+      if (byteLength > config.limits.maxWriteBytes) {
         throw new UserInputError(
-          `Refusing to upload ${body.byteLength} bytes. The write limit is ${config.limits.maxWriteBytes} bytes (NEXTCLOUD_MAX_WRITE_BYTES).`,
+          `Refusing to upload ${byteLength} bytes. The write limit is ${config.limits.maxWriteBytes} bytes (NEXTCLOUD_MAX_WRITE_BYTES).`,
         );
       }
       assertSafeHeader(options.contentType);
@@ -223,12 +248,27 @@ export function createNextcloudClient(
           `${displayPath(normalized)} already exists. Pass overwrite: true to replace it.`,
         );
       }
-      const response = await request("PUT", fileUrl(normalized), normalized, {
-        accept: (status) => status === 200 || status === 201 || status === 204,
-        headers: { "Content-Type": options.contentType },
-        body: Buffer.from(body),
-      });
-      await response.body?.cancel();
+      // Open the host stream only after the size and overwrite checks. A Readable is
+      // sent as the PUT body so the file is not copied into a second buffer first.
+      const payload = openUpload(body);
+      const streamed = payload instanceof Readable;
+      try {
+        const response = await request("PUT", fileUrl(normalized), normalized, {
+          accept: (status) => status === 200 || status === 201 || status === 204,
+          headers: {
+            "Content-Type": options.contentType,
+            "Content-Length": String(byteLength),
+          },
+          body: payload,
+          duplex: streamed ? "half" : undefined,
+        });
+        await response.body?.cancel();
+      } catch (error) {
+        if (streamed) {
+          payload.destroy();
+        }
+        throw error;
+      }
     },
 
     async mkdir(path: string, parents: boolean): Promise<void> {
@@ -425,6 +465,34 @@ async function errorDetail(response: Response): Promise<string> {
   return compact.slice(0, 300);
 }
 
+function rootFileMessage(limit: FileSizeLimit): string {
+  switch (limit) {
+    case "read":
+      return "Refusing to read the files root. Pass a file path.";
+    case "download":
+      return "Refusing to download the files root. Pass a file path.";
+    default: {
+      const unexpected: never = limit;
+      return unexpected;
+    }
+  }
+}
+
+function uploadByteLength(body: WriteBody): number {
+  const byteLength = body.byteLength;
+  if (!Number.isSafeInteger(byteLength) || byteLength < 0) {
+    throw new UserInputError("Upload size is invalid.");
+  }
+  return byteLength;
+}
+
+function openUpload(body: WriteBody): Uint8Array | Readable {
+  if (body instanceof Uint8Array) {
+    return Buffer.from(body);
+  }
+  return body.open();
+}
+
 function contentLength(response: Response): number | null {
   const raw = response.headers.get("content-length");
   if (!raw || !/^\d+$/.test(raw)) {
@@ -461,6 +529,74 @@ async function readCapped(response: Response, maxBytes: number): Promise<{ bytes
     total += value.byteLength;
   }
   return { bytes: concat(chunks, total), truncated: false };
+}
+
+async function writeCapped(
+  response: Response,
+  destination: Writable,
+  maxBytes: number,
+  advertised: number | null,
+): Promise<number> {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const buffer = new Uint8Array(await response.arrayBuffer());
+    if (buffer.byteLength > maxBytes) {
+      throw new FileTooLargeError(buffer.byteLength, maxBytes, "download");
+    }
+    await writeChunk(destination, buffer);
+    return buffer.byteLength;
+  }
+
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value || value.byteLength === 0) {
+        continue;
+      }
+      if (total + value.byteLength > maxBytes) {
+        await reader.cancel();
+        throw new FileTooLargeError(advertised ?? total + value.byteLength, maxBytes, "download");
+      }
+      await writeChunk(destination, value);
+      total += value.byteLength;
+    }
+  } catch (error) {
+    await reader.cancel().catch(() => undefined);
+    throw error;
+  }
+  return total;
+}
+
+function writeChunk(destination: Writable, chunk: Uint8Array): Promise<void> {
+  if (destination.destroyed) {
+    return Promise.reject(new UserInputError("Download destination closed before the file finished."));
+  }
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error | null): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      destination.off("error", onError);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    };
+    const onError = (error: Error): void => {
+      finish(error);
+    };
+    destination.once("error", onError);
+    destination.write(chunk, (error) => {
+      finish(error);
+    });
+  });
 }
 
 async function readTextLimited(response: Response, maxBytes: number, method: string, path: string): Promise<string> {
