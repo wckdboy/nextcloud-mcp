@@ -2,7 +2,19 @@
 
 MCP server for one Nextcloud account. Agents list, read, write, create, move, and delete files over WebDAV, create public share links over the OCS Share API, and search file names with WebDAV SEARCH. Credentials stay in environment variables. This repository does not ship secrets.
 
-Nextcloud auth is HTTP Basic with the user id and an **app password** (an app token). The server does not use session cookies, and it does not use Login Flow v2 or OAuth.
+Nextcloud auth is HTTP Basic with the user id and an **app password** (an app token). The server does not use browser login, session cookies, or Login Flow v2/OAuth.
+
+## Protocols
+
+| Work | Protocol | Endpoint |
+| --- | --- | --- |
+| List, stat, read, write, mkdir, move, delete | WebDAV | `/remote.php/dav/files/<username>/…` |
+| Filename search | WebDAV `SEARCH` | `/remote.php/dav/` |
+| Public share link | OCS Share API | `/ocs/v2.php/apps/files_sharing/api/v1/shares` |
+
+OCS is used only for share links, which WebDAV does not create. File bytes and folders never go through the browser or the OCS files API. `delete` requires `confirm: true` (and `recursive: true` for a folder). Paths that contain `..` are rejected before any request.
+
+CI runs mocked WebDAV and OCS responses. It does not call a live Nextcloud, so a LAN-only instance is fine.
 
 The server speaks [stdio](https://modelcontextprotocol.io) for Cursor and Grok Bot, and optional Streamable HTTP (JSON, with SSE when a response streams) for a remote client.
 

@@ -28,6 +28,7 @@ export function createNextcloudClient(
   const authorization = appPasswordAuthorization(config.username, config.appPassword);
 
   function filesRoot(): string {
+    // Every file operation stays on this WebDAV tree. Public share links are the OCS exception.
     return `${config.baseUrl}/remote.php/dav/files/${encodeURIComponent(config.username)}`;
   }
 

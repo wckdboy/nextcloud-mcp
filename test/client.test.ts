@@ -177,6 +177,66 @@ describe("Nextcloud client", () => {
     );
   });
 
+  it("keeps files and search on WebDAV and uses OCS only for share links", async () => {
+    const davRoot = "https://cloud.example.com/remote.php/dav/files/alice/";
+    const { fetchImpl, calls } = recordedFetch((call) => {
+      if (call.method === "PROPFIND" || call.method === "SEARCH") {
+        return xmlResponse(207, FILE_STAT);
+      }
+      if (call.method === "GET") {
+        return xmlResponse(200, "hello", { "content-type": "text/plain", "content-length": "5" });
+      }
+      if (call.method === "DELETE") {
+        return new Response(null, { status: 204 });
+      }
+      if (call.method === "POST") {
+        return new Response(
+          JSON.stringify({
+            ocs: {
+              meta: { status: "ok", statuscode: 200, message: "OK" },
+              data: { id: 1, url: "https://cloud.example.com/s/token", permissions: 1, path: "/notes.txt" },
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return xmlResponse(201, "");
+    });
+    const client = createNextcloudClient(testConfig, { fetchImpl });
+    await client.listDirectory("docs");
+    await client.stat("notes.txt");
+    await client.readFile("notes.txt", 100);
+    await client.writeFile("notes.txt", Buffer.from("hi"), {
+      contentType: "text/plain",
+      overwrite: true,
+      parents: false,
+    });
+    await client.mkdir("docs", false);
+    await client.move("a.txt", "b.txt", false);
+    await client.delete("gone.txt");
+    await client.search({ query: "notes", path: "", limit: 5 });
+    await client.createShareLink({ path: "notes.txt", permissions: 1 });
+
+    const ocsCalls = calls.filter((call) => call.url.includes("/ocs/"));
+    assert.equal(ocsCalls.length, 1);
+    assert.equal(ocsCalls[0]?.method, "POST");
+    assert.match(ocsCalls[0]?.url ?? "", /\/ocs\/v2\.php\/apps\/files_sharing\/api\/v1\/shares/);
+
+    for (const call of calls) {
+      assert.equal(call.headers.get("cookie"), null);
+      assert.equal(call.headers.get("authorization")?.startsWith("Basic "), true);
+      if (call.method === "SEARCH") {
+        assert.equal(call.url, "https://cloud.example.com/remote.php/dav/");
+      } else if (call.method !== "POST") {
+        assert.equal(call.url.startsWith(davRoot), true, call.url);
+      }
+    }
+    assert.deepEqual(
+      calls.filter((call) => call.method !== "PROPFIND" && call.method !== "POST").map((call) => call.method),
+      ["GET", "PUT", "MKCOL", "MOVE", "DELETE", "SEARCH"],
+    );
+  });
+
   it("refuses a read larger than the limit without returning a partial body", async () => {
     const { fetchImpl } = recordedFetch(
       () => xmlResponse(200, "abcdef", { "content-type": "text/plain", "content-length": "6" }),
