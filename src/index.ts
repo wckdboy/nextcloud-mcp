@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { loadConfig } from "./config.js";
+import { isDirectRun } from "./direct-run.js";
 import { startHttpServer } from "./http.js";
 import { createNextcloudClient } from "./nextcloud/client.js";
 import { createNextcloudMcpServer } from "./server.js";
@@ -34,15 +34,7 @@ export async function main(argv: readonly string[], env: NodeJS.ProcessEnv): Pro
   serveStdio(() => createNextcloudMcpServer(client, config.limits));
 }
 
-function isDirectRun(): boolean {
-  const entry = process.argv[1];
-  if (!entry) {
-    return false;
-  }
-  return import.meta.url === pathToFileURL(entry).href;
-}
-
-if (isDirectRun()) {
+if (isDirectRun(import.meta.url, process.argv[1])) {
   dotenv.config({ quiet: true });
   main(process.argv, process.env).catch((error: unknown) => {
     const message = error instanceof Error ? error.message : "Failed to start nextcloud-mcp";
