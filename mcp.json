@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "nextcloud-mcp": {
+      "command": "npx",
+      "args": ["-y", "--package", "github:wckdboy/nextcloud-mcp", "nextcloud-mcp"],
+      "env": {
+        "NEXTCLOUD_URL": "${NEXTCLOUD_URL}",
+        "NEXTCLOUD_USERNAME": "${NEXTCLOUD_USERNAME}",
+        "NEXTCLOUD_APP_PASSWORD": "${NEXTCLOUD_APP_PASSWORD}"
+      }
+    }
+  }
+}

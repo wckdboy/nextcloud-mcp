@@ -1,6 +1,6 @@
 {
   "name": "nextcloud-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "MCP server for Nextcloud files (WebDAV) and public share links (OCS). Credentials come from the environment only.",
   "type": "module",
   "license": "MIT",

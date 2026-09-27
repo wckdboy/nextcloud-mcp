@@ -1,0 +1,37 @@
+{
+  "name": "nextcloud-mcp",
+  "displayName": "Nextcloud",
+  "version": "0.1.1",
+  "description": "Nextcloud files over WebDAV and public share links over OCS. Uses an app token (Settings → Security → Devices & sessions), not the account password.",
+  "author": {
+    "name": "wckdboy"
+  },
+  "homepage": "https://github.com/wckdboy/nextcloud-mcp",
+  "repository": "https://github.com/wckdboy/nextcloud-mcp",
+  "license": "MIT",
+  "keywords": ["nextcloud", "webdav", "files", "ocs", "mcp"],
+  "category": "integrations",
+  "tags": ["nextcloud", "mcp", "webdav", "files"],
+  "variables": {
+    "type": "object",
+    "properties": {
+      "NEXTCLOUD_URL": {
+        "type": "string",
+        "title": "Nextcloud URL",
+        "description": "Instance base URL with no trailing slash (e.g. https://cloud.example.com)."
+      },
+      "NEXTCLOUD_USERNAME": {
+        "type": "string",
+        "title": "Nextcloud username",
+        "description": "Nextcloud user id used with the app token."
+      },
+      "NEXTCLOUD_APP_PASSWORD": {
+        "type": "string",
+        "title": "Nextcloud app password",
+        "description": "App token from Settings → Security → Devices & sessions. Never the account password."
+      }
+    },
+    "required": ["NEXTCLOUD_URL", "NEXTCLOUD_USERNAME", "NEXTCLOUD_APP_PASSWORD"]
+  },
+  "mcpServers": "./mcp.json"
+}
