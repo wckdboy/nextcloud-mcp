@@ -1,0 +1,44 @@
+{
+  "name": "nextcloud-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Nextcloud files (WebDAV) and public share links (OCS). Credentials come from the environment only.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "nextcloud-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wckdboy/nextcloud-mcp.git"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "start": "node dist/index.js",
+    "mcp": "node dist/index.js",
+    "mcp:http": "node dist/index.js --http",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/node": "^2.1.0",
+    "@modelcontextprotocol/server": "^2.1.0",
+    "@types/node": "^26.6.3",
+    "dotenv": "^18.0.4",
+    "fast-xml-parser": "^5.11.1",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}
